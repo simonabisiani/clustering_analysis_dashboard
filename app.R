@@ -201,9 +201,23 @@ ui <- page_navbar(
   bg = "#E33529",
   inverse = TRUE,
 
-  # Compare Experiments Tab
+  # Add custom CSS for hover effects
+  tags$head(
+    tags$style(HTML("
+      .experiment-button {
+        transition: background-color 0.2s ease;
+      }
+      .experiment-button:hover {
+        background-color: #f4a5a5 !important;
+      }
+      .experiment-button.selected:hover {
+        background-color: #cc2a1e !important;
+      }
+    "))
+  ),
+
   nav_panel(
-    title = "Compare Experiments",
+    title = "Home",
     div(
       class = "container-fluid mt-4",
       div(
@@ -245,41 +259,54 @@ ui <- page_navbar(
         p(
           "This tool is designed to support transparency and interpretation in computational analyses of local media, offering researchers a way to investigate emergent patterns without enforcing a predefined typology. By comparing across experiments, users can assess the robustness of clustering solutions and understand how methodological choices influence the identification of media outlet spatial typologies."
         ),
-        hr()
-      ),
+      )
+    )
+  ),
+
+  # Compare Experiments Tab
+  nav_panel(
+    title = "Compare Experiments",
       h2("Experiment Comparison"),
       p(
         "This table shows the performance metrics for all 25 clustering experiments conducted in the study."
       ),
       DTOutput("experiments_table")
-    )
-  ),
+    ),
 
-  # Explore One Experiment Tab
-  nav_panel(
-    title = "Explore One Experiment",
-    div(
-      class = "container-fluid mt-4",
-      # About section
-
-      # Experiment selection
-      fluidRow(
-        column(
-          4,
-          selectInput(
-            "experiment",
-            "Select Experiment:",
-            choices = NULL,
-            selected = NULL
+# Explore One Experiment Tab
+nav_panel(
+  title = "Explore One Experiment",
+  div(
+    class = "container-fluid mt-4",
+    
+    # Experiment selection and summary side by side
+    fluidRow(
+      # Left column - Experiment selector grid
+      column(
+        7,
+        card(
+          card_header(
+            h4("Select an Experiment", style = "margin: 0;")
+          ),
+          card_body(
+            p("Click on a cell in the table below to select an experiment:", 
+              style = "margin-bottom: 20px; color: #666;"),
+            uiOutput("experiment_selector_table")
           )
         )
       ),
+      
+      # Right column - Experiment summary
+      column(
+        3,
+        div(style = "margin-left: 20px;",
+          uiOutput("exp_metrics") 
+        )
+      )
+    ),
 
-      fluidRow(
-        column(5, uiOutput("exp_metrics"))
-      ),
-
-      # Analysis tabs
+    # Add spacing before the analysis tabs
+    div(style = "margin-top: 20px;",
       navset_card_underline(
         nav_panel(
           "Visualization",
@@ -409,9 +436,11 @@ ui <- page_navbar(
             plotOutput("boxplots_plots", height = "375px")
           )
         )
-      )
-    )
-  ),
+      ) # Close navset_card_underline
+    ) # Close div for spacing
+  ) # Close main div
+), # Close nav_panel
+
 
   # Methodology Tab
   nav_panel(
@@ -502,11 +531,6 @@ server <- function(input, output, session) {
     # Create summary table
     summary_data <- map_dfr(experiments, function(exp) {
       data.frame(
-        Experiment = paste(
-          exp$dataset,
-          format_algorithm_name(exp$algorithm),
-          sep = " - "
-        ),
         Dataset = exp$dataset,
         Algorithm = format_algorithm_name(exp$algorithm),
         Silhouette = round(exp$silhouette, 3),
@@ -535,26 +559,137 @@ server <- function(input, output, session) {
       )
   })
 
-  observe({
+  # Add this reactive value to track the selected experiment
+  values <- reactiveValues(selected_experiment = NULL)
+
+output$experiment_selector_table <- renderUI({
+  # Define cell dimensions once
+  cell_width <- "120px"   # Make wider to fit text
+  cell_height <- "40px"   # Make shorter/more rectangular
+  
+  experiments <- CLUSTERING_DATA$experiments
+  
+  # Get unique datasets and algorithms
+  all_datasets <- unique(sapply(experiments, function(x) x$dataset))
+  all_algorithms <- unique(sapply(experiments, function(x) x$algorithm))
+  
+  # Sort them for consistent ordering
+  all_datasets <- sort(all_datasets)
+  all_algorithms <- sort(all_algorithms)
+  
+  # Create a matrix to track which combinations exist
+  experiment_matrix <- matrix(FALSE, nrow = length(all_datasets), ncol = length(all_algorithms))
+  rownames(experiment_matrix) <- all_datasets
+  colnames(experiment_matrix) <- all_algorithms
+  
+  # Fill in available experiments and store their keys
+  experiment_keys <- matrix("", nrow = length(all_datasets), ncol = length(all_algorithms))
+  silhouette_scores <- matrix(NA, nrow = length(all_datasets), ncol = length(all_algorithms))
+  
+  for(exp_key in names(experiments)) {
+    exp <- experiments[[exp_key]]
+    dataset_idx <- which(all_datasets == exp$dataset)
+    algorithm_idx <- which(all_algorithms == exp$algorithm)
+    
+    if(length(dataset_idx) > 0 && length(algorithm_idx) > 0) {
+      experiment_matrix[dataset_idx, algorithm_idx] <- TRUE
+      experiment_keys[dataset_idx, algorithm_idx] <- exp_key
+      silhouette_scores[dataset_idx, algorithm_idx] <- exp$silhouette
+    }
+  }
+  
+  # Create the grid HTML - using separate width/height
+  grid_style <- paste0("display: grid; gap: 2px; grid-template-columns: 200px repeat(%d, ", cell_width, "); grid-template-rows: ", cell_height, " repeat(%d, ", cell_height, "); margin: 20px 0;")
+  
+  # Create header row
+  header_cells <- list(
+    # Corner cell with NO background color (transparent)
+    div(style = "padding: 5px; font-weight: bold; text-align: center; font-size: 12px;", "Dataset / Algorithm")
+  )
+  
+  for(algo in all_algorithms) {
+    header_cells <- append(header_cells, list(
+      div(style = "padding: 5px; font-weight: bold; text-align: center; font-size: 10px; word-wrap: break-word; overflow-wrap: break-word;", 
+          format_algorithm_name(algo))
+    ))
+  }
+  
+  # Create data rows
+  data_cells <- list()
+  for(i in 1:length(all_datasets)) {
+    dataset <- all_datasets[i]
+    
+    # Dataset name cell with NO background color (transparent)
+    data_cells <- append(data_cells, list(
+      div(style = "padding: 5px; font-weight: bold; text-align: right; font-size: 12px;", 
+          dataset)
+    ))
+
+    # Algorithm cells
+    for(j in 1:length(all_algorithms)) {
+      if(experiment_matrix[i, j]) {
+        # Available experiment - create clickable button
+        button_id <- paste0("exp_", i, "_", j)
+        exp_key <- experiment_keys[i, j]
+        
+        # Check if this is the currently selected experiment
+        is_selected <- !is.null(values$selected_experiment) && values$selected_experiment == exp_key
+        bg_color <- if(is_selected) "#E33529" else "#e1ded2"  # Red if selected, grey if not
+        css_class <- if(is_selected) "experiment-button selected" else "experiment-button"
+        
+        data_cells <- append(data_cells, list(
+          actionButton(
+            button_id,
+            label = "",
+            class = css_class,
+            style = paste0("width: ", cell_width, "; height: ", cell_height, "; border: 1px solid #ccc; background: ", bg_color, "; margin: 0; padding: 0;"),
+            onclick = paste0("Shiny.setInputValue('selected_experiment_key', '", exp_key, "', {priority: 'event'});")
+          )
+        ))
+      } else {
+        # Unavailable combination - keep light grey
+        data_cells <- append(data_cells, list(
+          div(style = paste0("width: ", cell_width, "; height: ", cell_height, "; background: #f5f5f5; border: 1px solid #ddd; margin: 0;"))
+        ))
+      }
+    }
+  } # Close the i loop
+  
+  # Combine all cells
+  all_cells <- append(header_cells, data_cells)
+  
+  div(
+    style = sprintf(grid_style, length(all_algorithms), length(all_datasets)),
+    all_cells
+  )
+})
+# Handle button clicks
+observeEvent(input$selected_experiment_key, {
+  req(input$selected_experiment_key)
+  values$selected_experiment <- input$selected_experiment_key
+}, priority = 100)  # Higher priority to ensure it fires
+  
+  # Update grid colors when selection changes
+observe({
+  req(values$selected_experiment)
+  # This will trigger a re-render of the grid with updated colors
+  # The grid will automatically update because it's reactive to values$selected_experiment
+})
+  
+# Initialize with the first available experiment
+observe({
+  if (is.null(values$selected_experiment)) {
     experiments <- CLUSTERING_DATA$experiments
-    exp_choices <- setNames(
-      names(experiments),
-      sapply(experiments, function(x) {
-        paste0(x$dataset, " - ", format_algorithm_name(x$algorithm))
-      })
-    )
+    if (length(experiments) > 0) {
+      values$selected_experiment <- names(experiments)[1]
+    }
+  }
+})
 
-    updateSelectInput(
-      session,
-      "experiment",
-      choices = exp_choices,
-      selected = names(exp_choices)[1]
-    )
-  })
-
+  # Update the current_experiment reactive to use the new selection method
   current_experiment <- reactive({
-    req(input$experiment)
-    CLUSTERING_DATA$experiments[[input$experiment]]
+    req(values$selected_experiment)
+    CLUSTERING_DATA$experiments[[values$selected_experiment]]
   })
 
   # Current prototypes reactive
@@ -822,13 +957,15 @@ server <- function(input, output, session) {
     ggplot(plot_data_scaled, aes(x = Feature, y = Value)) +
       geom_boxplot(alpha = 0.4, outlier.size = 0.8, outlier.alpha = 0.3) +
       scale_y_continuous(breaks = scales::pretty_breaks(n = 5)) + # Exactly 5 breaks
-      coord_flip()+
-      facet_wrap(~Cluster, scales = "free_x", ncol = 6) + 
+      coord_flip() +
+      facet_wrap(~Cluster, scales = "free_x", ncol = 6) +
       labs(x = "", y = "Standardised Value") +
       dark_theme() +
       theme(
-        panel.spacing = unit(2, "lines"))   
+        panel.spacing = unit(2, "lines")
+      )
   })
 }
 
 shinyApp(ui = ui, server = server)
+
