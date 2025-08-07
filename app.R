@@ -166,7 +166,7 @@ dark_theme <- function() {
       axis.title = element_text(color = "#E43D12", size = rel(1.1)),
       legend.text = element_text(color = "#E43D12"),
       legend.title = element_text(color = "#E43D12", face = "bold"),
-      panel.grid.major = element_blank(),
+      panel.grid.major = element_line(color = "#e1ded2", size = 0.5),
       strip.text = element_text(
         color = "#E43D12",
         face = "bold",
@@ -265,7 +265,7 @@ ui <- page_navbar(
       # Experiment selection
       fluidRow(
         column(
-          2,
+          4,
           selectInput(
             "experiment",
             "Select Experiment:",
@@ -406,7 +406,7 @@ ui <- page_navbar(
           "Feature Distributions",
           card_body(
             h5("Distribution of Features by Cluster"),
-            plotOutput("boxplots_plots", height = "700px")
+            plotOutput("boxplots_plots", height = "375px")
           )
         )
       )
@@ -821,13 +821,13 @@ server <- function(input, output, session) {
 
     ggplot(plot_data_scaled, aes(x = Feature, y = Value)) +
       geom_boxplot(alpha = 0.4, outlier.size = 0.8, outlier.alpha = 0.3) +
-      facet_wrap(~Cluster, scales = "fixed", ncol = 3) + # Changed to fixed scales
-      labs(x = "Feature", y = "Standardized Value (Z-score)") +
+      scale_y_continuous(breaks = scales::pretty_breaks(n = 5)) + # Exactly 5 breaks
+      coord_flip()+
+      facet_wrap(~Cluster, scales = "free_x", ncol = 6) + 
+      labs(x = "", y = "Standardised Value") +
       dark_theme() +
       theme(
-        panel.spacing = unit(4, "lines"),
-        axis.text.x = element_text(angle = 45, hjust = 1) # Rotate x-axis labels
-      )
+        panel.spacing = unit(2, "lines"))   
   })
 }
 
